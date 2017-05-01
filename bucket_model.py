@@ -423,9 +423,6 @@ class Model(object):
 
     def test(self, sess, t_x, t_y, idx2tag, idx2char, outpath=None, ensemble=None, batch_size=200):
 
-        idx2scheme_short = {0: 'BI', 1: 'BIE', 2: 'BIES', 3: 'Voting'}
-        idx2scheme_long = {0: 'BIES', 1: 'long'}
-
         t_y = toolbox.unpad_zeros(t_y)
         gold = toolbox.decode_tags(t_y, idx2tag, self.tag_scheme)
         chars = toolbox.decode_chars(t_x[0], idx2char)
@@ -465,7 +462,7 @@ class Model(object):
                 final_out = prediction_out[0]
             toolbox.printer(final_out, outpath)
 
-    def tag(self, sess, r_x, idx2tag, idx2char, expected_scheme='BIES', outpath='out.txt', ensemble=None, batch_size=200):
+    def tag(self, sess, r_x, idx2tag, idx2char, expected_scheme='BIES', outpath='out.txt', ensemble=None, batch_size=200, large_file=False):
 
         chars = toolbox.decode_chars(r_x[0], idx2char)
 
@@ -486,8 +483,10 @@ class Model(object):
             final_out = prediction_out[scheme2idx_long[expected_scheme]]
         else:
             final_out = prediction_out[0]
-
-        toolbox.printer(final_out, outpath)
+        if large_file:
+            return final_out
+        else:
+            toolbox.printer(final_out, outpath)
 
     def predict(self, data, sess, model, index=None, argmax=True, batch_size=100, pt_h=None, pt=None, ensemble=None, verbose=False):
         if self.crf:

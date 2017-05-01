@@ -7,6 +7,7 @@ import tensorflow as tf
 from bucket_model import Model
 from time import time
 import cPickle as pickle
+import codecs
 
 
 parser = argparse.ArgumentParser(description='A tagger for joint Chinese segmentation and POS tagging. Written by Y. Shao, Uppsala University')
@@ -22,7 +23,7 @@ parser.add_argument('-m', '--model', default='trained_model', help='Name of the 
 parser.add_argument('-tg', '--tag_scheme', default='BIES', help='Tagging scheme')
 parser.add_argument('-crf', '--crf', default=1, type=int, help='Using CRF interface')
 
-parser.add_argument('-ng', '--ngram', default=1, type=int, help='Using ngrams')
+parser.add_argument('-ng', '--ngram', default=3, type=int, help='Using ngrams')
 
 parser.add_argument('-wv', '--word_vector', default=False, help='Whether using word vectors', action='store_true')
 parser.add_argument('-emb', '--embeddings', default=None, help='Path and name of pre-trained char embeddings')
@@ -50,7 +51,7 @@ parser.add_argument('-mp', '--max_pooling', default=2, type=int, help='Max pooli
 
 parser.add_argument('-iter', '--epochs', default=30, type=int, help='Numbers of epochs')
 parser.add_argument('-op', '--optimizer', default='adagrad', help='Optimizer')
-parser.add_argument('-lr', '--learning_rate', default=0.5, type=float, help='Initial learning rate')
+parser.add_argument('-lr', '--learning_rate', default=0.1, type=float, help='Initial learning rate')
 parser.add_argument('-ld', '--decay_rate', default=0.05, type=float, help='Learning rate decay')
 parser.add_argument('-mt', '--momentum', default=None, type=float, help='Momentum')
 
@@ -65,6 +66,10 @@ parser.add_argument("-g","--gpu", help="the id of gpu, the default is 0", defaul
 parser.add_argument('-opth', '--output_path', default=None, help='Output path')
 
 parser.add_argument('-ens', '--ensemble', default=False, help='Ensemble several weights', action='store_true')
+
+parser.add_argument('-tl', '--tag_large', default=False, help='Tag (very) large file', action='store_true')
+
+parser.add_argument('-ls', '--large_size', default=200000, type=int, help='Tag (very) large file')
 
 args = parser.parse_args()
 
@@ -255,6 +260,8 @@ else:
 
     new_chars, new_grams, new_gram_emb, gram2idx = None, None, None, None
 
+    raw_file = None
+
     test_x, test_y, raw_x = None, None, None
 
     rad_dic, pixels = None, None
@@ -314,9 +321,17 @@ else:
 
         char2idx, idx2char = toolbox.update_char_dict(char2idx, new_chars)
 
-        raw_x, raw_len = toolbox.get_input_vec_raw(path, raw_file, char2idx, rad_dic=rad_dic)
-        print 'Numbers of sentences: %d.' % len(raw_x[0])
-        max_step = raw_len
+        if not args.tag_large:
+
+            raw_x, raw_len = toolbox.get_input_vec_raw(path, raw_file, char2idx, rad_dic=rad_dic)
+            print 'Numbers of sentences: %d.' % len(raw_x[0])
+            max_step = raw_len
+
+            #for k in range(len(raw_x)):
+            #    raw_x[k] = toolbox.pad_zeros(raw_x[k], max_step)
+        else:
+            max_step = toolbox.get_maxstep(path, raw_file)
+
         print 'Longest sentence is %d. ' % max_step
 
         if graphic:
@@ -324,17 +339,22 @@ else:
             pixels += new_pixels
 
         if ngram > 1:
+
             gram2idx = toolbox.get_ngram_dic(grams)
-            new_grams = toolbox.get_new_grams(path + '/' + raw_file, gram2idx, type='raw')
+
             if args.ngram_embeddings is not None:
+                new_grams = toolbox.get_new_grams(path + '/' + raw_file, gram2idx, type='raw')
                 new_grams = toolbox.get_valid_grams(new_grams, args.ngram_embeddings)
                 gram2idx = toolbox.update_gram_dicts(gram2idx, new_grams)
 
-            raw_gram = toolbox.get_gram_vec(path, raw_file, gram2idx)
-            raw_x += raw_gram
+            if not args.tag_large:
 
-        for k in range(len(raw_x)):
-            raw_x[k] = toolbox.pad_zeros(raw_x[k], max_step)
+                raw_gram = toolbox.get_gram_vec(path, raw_file, gram2idx, is_raw=True)
+                raw_x += raw_gram
+
+        if not args.tag_large:
+            for k in range(len(raw_x)):
+                raw_x[k] = toolbox.pad_zeros(raw_x[k], max_step)
 
     config = tf.ConfigProto(allow_soft_placement=True)
     gpu_config = "/gpu:" + str(args.gpu)
@@ -392,4 +412,48 @@ else:
             model.test(sess=sess, t_x=test_x, t_y=test_y, idx2tag=idx2tag, idx2char=idx2char, outpath=args.output_path, ensemble=args.ensemble, batch_size=args.test_batch)
 
         elif args.action == 'tag':
-            model.tag(sess=sess, r_x=raw_x, idx2tag=idx2tag, idx2char=idx2char, outpath=args.output_path, ensemble=args.ensemble, batch_size=args.tag_batch)
+            if not args.tag_large:
+                model.tag(sess=sess, r_x=raw_x, idx2tag=idx2tag, idx2char=idx2char, outpath=args.output_path, ensemble=args.ensemble, batch_size=args.tag_batch, large_file=args.tag_large)
+            else:
+                l_writer = codecs.open(args.output_path, 'w', encoding='utf-8')
+                out = []
+                with codecs.open(path + '/' + raw_file, 'r', encoding='utf-8') as l_file:
+                    lines = []
+                    for line in l_file:
+                        lines.append(line.strip())
+                        if len(lines) >= args.large_size:
+                            raw_x, _ = toolbox.get_input_vec_line(lines, char2idx, rad_dic=rad_dic)
+
+                            if ngram > 1:
+                                raw_gram = toolbox.get_gram_vec_raw(lines, gram2idx)
+                                raw_x += raw_gram
+
+                            for k in range(len(raw_x)):
+                                raw_x[k] = toolbox.pad_zeros(raw_x[k], max_step)
+
+                            out = model.tag(sess=sess, r_x=raw_x, idx2tag=idx2tag, idx2char=idx2char, outpath=args.output_path, ensemble=args.ensemble, batch_size=args.tag_batch, large_file=args.tag_large)
+
+                            for l_out in out:
+                                l_writer.write(l_out + '\n')
+                            lines = []
+                    if len(lines) > 0:
+
+                        raw_x, _ = toolbox.get_input_vec_line(lines, char2idx, rad_dic=rad_dic)
+
+                        if ngram > 1:
+                            raw_gram = toolbox.get_gram_vec_raw(lines, gram2idx)
+                            raw_x += raw_gram
+
+                        for k in range(len(raw_x)):
+                            raw_x[k] = toolbox.pad_zeros(raw_x[k], max_step)
+
+                        out = model.tag(sess=sess, r_x=raw_x, idx2tag=idx2tag, idx2char=idx2char,
+                                        outpath=args.output_path, ensemble=args.ensemble, batch_size=args.tag_batch,
+                                        large_file=args.tag_large)
+
+                        for l_out in out:
+                            l_writer.write(l_out + '\n')
+
+                l_writer.close()
+
+

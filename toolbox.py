@@ -319,7 +319,7 @@ def get_radical_idx(ch, rad_dic, keys=None):
 
 
 def get_new_chars(path, char2idx, type='ctb'):
-    new_chars = []
+    new_chars = set()
     for line in codecs.open(path, 'rb', encoding='utf-8'):
         line = line.strip()
         if type == 'ctb':
@@ -329,12 +329,12 @@ def get_new_chars(path, char2idx, type='ctb'):
                 assert len(items) == 2
                 for ch in items[0]:
                     if ch not in char2idx:
-                        new_chars.append(ch)
+                        new_chars.add(ch)
         else:
             line = re.sub('[\s+]', '', line)
             for ch in line:
                 if ch not in char2idx:
-                    new_chars.append(ch)
+                    new_chars.add(ch)
     return new_chars
 
 
@@ -675,18 +675,30 @@ def gram_vec(raw, dic):
     return out
 
 
-def get_gram_vec(path, fname, gram2index):
+def get_gram_vec(path, fname, gram2index, is_raw=False):
     raw = []
-    for line in codecs.open(path + '/' + fname, 'r', encoding='utf-8'):
-        line = line.strip()
-        segs = line.split(' ')
-        if len(segs) > 0 and len(line) > 0:
-            raw_l = ''
-            for seg in segs:
-                sp = seg.split('_')
-                if len(sp) == 2:
-                    raw_l += sp[0]
-            raw.append(raw_l)
+    if is_raw:
+        for line in codecs.open(path + '/' + fname, 'r', encoding='utf-8'):
+            line = line.strip()
+            raw.append(line)
+    else:
+        for line in codecs.open(path + '/' + fname, 'r', encoding='utf-8'):
+            line = line.strip()
+            segs = line.split(' ')
+            if len(segs) > 0 and len(line) > 0:
+                raw_l = ''
+                for seg in segs:
+                    sp = seg.split('_')
+                    if len(sp) == 2:
+                        raw_l += sp[0]
+                raw.append(raw_l)
+    out = []
+    for g_dic in gram2index:
+        out.append(gram_vec(raw, g_dic))
+    return out
+
+
+def get_gram_vec_raw(raw, gram2index):
     out = []
     for g_dic in gram2index:
         out.append(gram_vec(raw, g_dic))
@@ -702,13 +714,45 @@ def get_input_vec_raw(path, fname, char2index, rad_dic=None):
     else:
         x_m = [[], []]
         keys = sorted(rad_dic.keys())
-        key_map['NULL'] = 0
+        key_map['<NULL>'] = 0
         idx = 1
         for k in keys:
             key_map[k] = idx
             idx += 1
 
     for line in codecs.open(path + '/' + fname, 'r', encoding='utf-8'):
+        charIndices = []
+        radIndices = []
+        line = re.sub('[\s+]', '', line)
+        if len(line) > max_len:
+            max_len = len(line)
+        for ch in line:
+            charIndices.append(char2index[ch])
+            if rad_dic is not None:
+                radIndices.append(key_map[get_radical_idx(ch, rad_dic, keys)])
+        x_m[0].append(charIndices)
+        if rad_dic is not None:
+            x_m[1].append(radIndices)
+    return x_m, max_len
+
+
+
+def get_input_vec_line(lines, char2index, rad_dic=None):
+    max_len = 0
+    key_map = {}
+    keys = []
+    if rad_dic is None:
+        x_m = [[]]
+    else:
+        x_m = [[], []]
+        keys = sorted(rad_dic.keys())
+        key_map['<NULL>'] = 0
+        idx = 1
+        for k in keys:
+            key_map[k] = idx
+            idx += 1
+
+    for line in lines:
         charIndices = []
         radIndices = []
         line = re.sub('[\s+]', '', line)
@@ -751,8 +795,12 @@ def decode_tags(idx, index2tags, tag_scheme):
             sent = []
             for item in line:
                 tag = dic[item]
-                tag = tag.replace('E', 'I')
-                tag = tag.replace('S', 'B')
+                if '-' in tag:
+                    tag = tag.replace('E-', 'I-')
+                    tag = tag.replace('S-', 'B-')
+                else:
+                    tag = tag.replace('E', 'I')
+                    tag = tag.replace('S', 'B')
                 sent.append(tag)
             sents.append(sent)
         out.append(sents)
@@ -825,7 +873,7 @@ def generate_output(chars, tags, tag_scheme):
 def evaluator(prediction, gold, tag_scheme='BIES', verbose=False):
     assert len(prediction) == len(gold)
 
-    scores = score(prediction[0], gold[0], verbose)
+    scores = score(gold[0], prediction[0],  verbose)
     print 'Segmentation F-score: %f' % scores[0]
     if tag_scheme != 'seg':
         print 'Tagging F-score: %f' % scores[1]
@@ -926,3 +974,13 @@ def get_batch_pixels(ids, pixels):
         l_out = [pixels[idx] for idx in id]
         out.append(l_out)
     return np.asarray(out)
+
+
+def get_maxstep(path, raw_file):
+    maxstep = 0
+    for line in codecs.open(path + '/' + raw_file, 'r', encoding='utf-8'):
+        line = line.strip()
+        if len(line) > maxstep:
+            maxstep = len(line)
+    return maxstep
+
