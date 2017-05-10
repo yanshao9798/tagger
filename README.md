@@ -2,6 +2,10 @@
 
 A Joint Chinese segmentation and POS tagger based on bidirectional GRU-CRF
 
+## News
+
+Now the tagger supports bucket model to very efficiently tag very large files. 
+
 ## Requirements
 
 Python 2.7
