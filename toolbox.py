@@ -7,6 +7,7 @@ import tensorflow as tf
 import math
 import re
 import pygame
+import copy
 
 
 from evaluation import score
@@ -274,14 +275,22 @@ def read_chars_pixels(path, font_name, pt_size):
     return pix_dic
 
 
-def update_char_dict(char2idx, new_chars):
+def update_char_dict(char2idx, new_chars, valid_chars=None):
     dim = len(char2idx)
+    unk_dim = dim
+    o_dim = dim
+    unk_char2idx = copy.copy(char2idx)
+    unk_idx = char2idx['<UNK>']
     for char in new_chars:
         if char not in char2idx:
             char2idx[char] = dim
+            if valid_chars is not None and char in valid_chars and unk_dim - o_dim < 500:
+                unk_char2idx[char] = unk_dim
+            else:
+                unk_char2idx[char] = unk_idx
             dim += 1
     idx2char = {k: v for v, k in char2idx.items()}
-    return char2idx, idx2char
+    return char2idx, idx2char, unk_char2idx
 
 
 def update_gram_dicts(gram2idx, new_grams):
@@ -289,7 +298,7 @@ def update_gram_dicts(gram2idx, new_grams):
     new_gram2idx = []
     for dic, n_gram in zip(gram2idx, new_grams):
         assert len(dic.keys()[0]) == len(n_gram[0])
-        new_dic, _ = update_char_dict(dic, n_gram)
+        new_dic, _, _ = update_char_dict(dic, n_gram)
         new_gram2idx.append(new_dic)
     return new_gram2idx
 
@@ -321,6 +330,26 @@ def get_radical_idx(ch, rad_dic, keys=None):
 def get_new_chars(path, char2idx, type='ctb'):
     new_chars = set()
     for line in codecs.open(path, 'rb', encoding='utf-8'):
+        line = line.strip()
+        if type == 'ctb':
+            segs = line.split(' ')
+            for seg in segs:
+                items = seg.split('_')
+                assert len(items) == 2
+                for ch in items[0]:
+                    if ch not in char2idx:
+                        new_chars.add(ch)
+        else:
+            line = re.sub('[\s+]', '', line)
+            for ch in line:
+                if ch not in char2idx:
+                    new_chars.add(ch)
+    return new_chars
+
+
+def get_new_chars_raw(lines, char2idx, type='ctb'):
+    new_chars = set()
+    for line in lines:
         line = line.strip()
         if type == 'ctb':
             segs = line.split(' ')
@@ -398,6 +427,19 @@ def get_new_ng_embeddings(new_grams, emb_dim, emb_path=None):
         n_emb = get_new_embeddings(new_grams[i], emb_dim, real_path)
         new_embs.append(n_emb)
     return new_embs
+
+
+def get_valid_chars(chars, emb_path):
+    valid_chars = []
+    total = []
+    for line in codecs.open(emb_path, 'rb', encoding='utf-8'):
+        line = line.strip()
+        sets = line.split(' ')
+        total.append(sets[0])
+    for ch in chars:
+        if ch in total:
+            valid_chars.append(ch)
+    return valid_chars
 
 
 def get_valid_grams(ngram, emb_path):
@@ -677,12 +719,18 @@ def gram_vec(raw, dic):
 
 def get_gram_vec(path, fname, gram2index, is_raw=False):
     raw = []
+
+    if path is None:
+        real_path = fname
+    else:
+        real_path = path + '/' + fname
+
     if is_raw:
-        for line in codecs.open(path + '/' + fname, 'r', encoding='utf-8'):
+        for line in codecs.open(real_path, 'r', encoding='utf-8'):
             line = line.strip()
             raw.append(line)
     else:
-        for line in codecs.open(path + '/' + fname, 'r', encoding='utf-8'):
+        for line in codecs.open(real_path, 'r', encoding='utf-8'):
             line = line.strip()
             segs = line.split(' ')
             if len(segs) > 0 and len(line) > 0:
@@ -720,7 +768,12 @@ def get_input_vec_raw(path, fname, char2index, rad_dic=None):
             key_map[k] = idx
             idx += 1
 
-    for line in codecs.open(path + '/' + fname, 'r', encoding='utf-8'):
+    if path is None:
+        real_path = fname
+    else:
+        real_path = path + '/' + fname
+
+    for line in codecs.open(real_path, 'r', encoding='utf-8'):
         charIndices = []
         radIndices = []
         line = re.sub('[\s+]', '', line)
@@ -976,11 +1029,61 @@ def get_batch_pixels(ids, pixels):
     return np.asarray(out)
 
 
-def get_maxstep(path, raw_file):
+def get_maxstep(raw_file, bt_size):
+    max_bt = 300 / bt_size + 1
+    wt = [None]
+    wt[0] = codecs.open(raw_file + '_' + str(0), 'w', encoding='utf-8')
     maxstep = 0
-    for line in codecs.open(path + '/' + raw_file, 'r', encoding='utf-8'):
+    wt_long_idx = codecs.open(raw_file + '_lidx', 'w', encoding='utf-8')
+    for line in codecs.open(raw_file, 'r', encoding='utf-8'):
         line = line.strip()
+        l_len = len(line)
         if len(line) > maxstep:
-            maxstep = len(line)
+            maxstep = l_len
+            if maxstep > 300:
+                if len(wt) < max_bt:
+                    for i in range(len(wt), max_bt):
+                        wt.append(codecs.open(raw_file + '_' + str(i), 'w', encoding='utf-8'))
+                wt[max_bt - 1].write(line + '\n')
+                wt_long_idx.write(str(max_bt - 1) + '\n')
+            else:
+                bt_idx = (l_len - 1) / bt_size
+                if bt_idx > len(wt) - 1:
+                    for i in range(len(wt), bt_idx + 1):
+                        wt.append(codecs.open(raw_file + '_' + str(i), 'w', encoding='utf-8'))
+                wt[bt_idx].write(line + '\n')
+                wt_long_idx.write(str(bt_idx) + '\n')
+        elif l_len > 0:
+            if l_len > 300:
+                wt[max_bt - 1].write(line + '\n')
+                wt_long_idx.write(str(max_bt - 1) + '\n')
+            else:
+                bt_idx = (l_len - 1) / bt_size
+                wt[bt_idx].write(line + '\n')
+                wt_long_idx.write(str(bt_idx) + '\n')
+    for i in range(len(wt)):
+        wt[i].close()
+    wt_long_idx.close()
     return maxstep
+
+
+def merge_files(out_path, raw_file, bt_num):
+    wt = codecs.open(out_path, 'w', encoding='utf-8')
+    rd = []
+    for i in range(bt_num):
+        rd.append(codecs.open(out_path + '_' + str(i), 'r', encoding='utf-8'))
+    for line in codecs.open(raw_file + '_lidx', 'r', encoding='utf-8'):
+        line = line.strip()
+        r_idx = int(line)
+        line = rd[r_idx].readline()
+        wt.write(line)
+    wt.close()
+
+    for i in range(bt_num):
+        rd[i].close()
+        os.remove(raw_file + '_' + str(i))
+        os.remove(out_path + '_' + str(i))
+
+    os.remove(raw_file + '_lidx')
+
 

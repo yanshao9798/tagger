@@ -74,9 +74,8 @@ def predict(sess, model, data, dr=None, transitions=None, crf=True, decode_sess=
         if pixels is not None:
             pt_ids = [s[0] for s in next_batch_input]
             holders.append(toolbox.get_batch_pixels(pt_ids, pixels))
-        #length_holder = tf.cast(tf.pack(holders[0]), dtype=tf.int32)
-        #length = tf.reduce_sum(tf.sign(length_holder), reduction_indices=1)
         length = np.sum(np.sign(holders[0]), axis=1)
+        length = length.astype(int)
         if crf:
             assert transitions is not None and len(transitions) == len(predictions) and len(scores) == len(decode_holders)
             for i in range(len(predictions)):
@@ -87,7 +86,6 @@ def predict(sess, model, data, dr=None, transitions=None, crf=True, decode_sess=
                     ob = en_obs/en_num
                 else:
                     ob = sess.run(predictions[i], feed_dict={i: h for i, h in zip(input_v, holders)})
-                #trans = sess.run(transitions[i])
                 pre_values = [ob, trans[i], length, batch_size]
                 assert len(pre_values) == len(decode_holders[i])
                 max_scores, max_scores_pre = decode_sess.run(scores[i], feed_dict={i: h for i, h in zip(decode_holders[i], pre_values)})

@@ -266,7 +266,11 @@ else:
 
     rad_dic, pixels = None, None
 
+    unk_char2idx = None
+
     max_step = None
+
+    s_time = None
 
     if radical:
         rad_dic = toolbox.get_radical_dic()
@@ -281,9 +285,15 @@ else:
         test_file = args.test
         new_chars = toolbox.get_new_chars(path + '/' + test_file, char2idx)
 
-        char2idx, idx2char = toolbox.update_char_dict(char2idx, new_chars)
+        valid_chars = None
 
-        test_x, test_y, test_max_slen_c, test_max_slen_w, test_max_wlen, _ = toolbox.get_input_vec(path, test_file, char2idx, tag2idx, tag_scheme=tag_scheme, rad_dic=rad_dic)
+        if args.embeddings is not None:
+
+            valid_chars = toolbox.get_valid_chars(new_chars, args.embeddings)
+
+        char2idx, idx2char, unk_char2idx = toolbox.update_char_dict(char2idx, new_chars, valid_chars)
+
+        test_x, test_y, test_max_slen_c, test_max_slen_w, test_max_wlen = toolbox.get_input_vec(path, test_file, char2idx, tag2idx, tag_scheme=tag_scheme, rad_dic=rad_dic)
 
         print 'Test set: %d instances.' % len(test_x[0])
 
@@ -314,23 +324,29 @@ else:
             test_y[k] = toolbox.pad_zeros(test_y[k], max_step)
 
     elif args.action == 'tag':
+        s_time = time()
         assert args.raw is not None
 
         raw_file = args.raw
-        new_chars = toolbox.get_new_chars(path + '/' + raw_file, char2idx, type='raw')
 
-        char2idx, idx2char = toolbox.update_char_dict(char2idx, new_chars)
+        new_chars = toolbox.get_new_chars(raw_file, char2idx, type='raw')
+
+        valid_chars = None
+
+        if args.embeddings is not None:
+
+            valid_chars = toolbox.get_valid_chars(new_chars, args.embeddings)
+
+        char2idx, idx2char, unk_char2idx = toolbox.update_char_dict(char2idx, new_chars, valid_chars)
 
         if not args.tag_large:
 
-            raw_x, raw_len = toolbox.get_input_vec_raw(path, raw_file, char2idx, rad_dic=rad_dic)
+            raw_x, raw_len = toolbox.get_input_vec_raw(None, raw_file, char2idx, rad_dic=rad_dic)
             print 'Numbers of sentences: %d.' % len(raw_x[0])
             max_step = raw_len
 
-            #for k in range(len(raw_x)):
-            #    raw_x[k] = toolbox.pad_zeros(raw_x[k], max_step)
         else:
-            max_step = toolbox.get_maxstep(path, raw_file)
+            max_step = toolbox.get_maxstep(raw_file, args.bucket_size)
 
         print 'Longest sentence is %d. ' % max_step
 
@@ -343,13 +359,13 @@ else:
             gram2idx = toolbox.get_ngram_dic(grams)
 
             if args.ngram_embeddings is not None:
-                new_grams = toolbox.get_new_grams(path + '/' + raw_file, gram2idx, type='raw')
+                new_grams = toolbox.get_new_grams(raw_file, gram2idx, type='raw')
                 new_grams = toolbox.get_valid_grams(new_grams, args.ngram_embeddings)
                 gram2idx = toolbox.update_gram_dicts(gram2idx, new_grams)
 
             if not args.tag_large:
 
-                raw_gram = toolbox.get_gram_vec(path, raw_file, gram2idx, is_raw=True)
+                raw_gram = toolbox.get_gram_vec(None, raw_file, gram2idx, is_raw=True)
                 raw_x += raw_gram
 
         if not args.tag_large:
@@ -361,10 +377,22 @@ else:
     print 'Initialization....'
     t = time()
     main_graph = tf.Graph()
+
     with main_graph.as_default():
         with tf.variable_scope("tagger") as scope:
-
-            model = Model(nums_chars=nums_chars, nums_tags=nums_tags, buckets_char=[max_step], counts=[200], font=font, pic_size=pic_size, tag_scheme=tag_scheme, word_vec=word_vector, graphic=graphic, radical=radical, crf=crf, ngram=num_ngram, batch_size=args.tag_batch)
+            if args.action == 'test' or (args.action == 'tag' and not args.tag_large):
+                model = Model(nums_chars=nums_chars, nums_tags=nums_tags, buckets_char=[max_step], counts=[200], font=font, pic_size=pic_size, tag_scheme=tag_scheme, word_vec=word_vector, graphic=graphic, radical=radical, crf=crf, ngram=num_ngram, batch_size=args.tag_batch)
+            else:
+                bt_chars = []
+                bt_len = args.bucket_size
+                while bt_len <= min(300, max_step):
+                    bt_chars.append(bt_len)
+                    bt_len += args.bucket_size
+                bt_chars.append(bt_len)
+                if max_step > 300:
+                    bt_chars.append(max_step)
+                bt_counts = [200] * len(bt_chars)
+                model = Model(nums_chars=nums_chars, nums_tags=nums_tags, buckets_char=bt_chars, counts=bt_counts, font=font, pic_size=pic_size, tag_scheme=tag_scheme, word_vec=word_vector, graphic=graphic, radical=radical, crf=crf, ngram=num_ngram, batch_size=args.tag_batch)
             model.main_graph(trained_model=None, scope=scope, emb_dim=emb_dim, gru=gru, rnn_dim=rnn_dim, rnn_num=rnn_num, drop_out=drop_out, pixels=pixels, con_width=con_width, filters=cv_kernels, pooling_size=pooling_size)
             model.define_updates(new_chars=new_chars, emb_path=emb_path, char2idx=char2idx, new_grams=new_grams, ng_emb_path=ng_emb_path, gram2idx=gram2idx)
             init = tf.initialize_all_variables()
@@ -413,15 +441,36 @@ else:
 
         elif args.action == 'tag':
             if not args.tag_large:
-                model.tag(sess=sess, r_x=raw_x, idx2tag=idx2tag, idx2char=idx2char, outpath=args.output_path, ensemble=args.ensemble, batch_size=args.tag_batch, large_file=args.tag_large)
+                model.tag(sess=sess, r_x=raw_x, idx2tag=idx2tag, idx2char=idx2char, char2idx=unk_char2idx, outpath=args.output_path, ensemble=args.ensemble, batch_size=args.tag_batch, large_file=args.tag_large)
             else:
-                l_writer = codecs.open(args.output_path, 'w', encoding='utf-8')
-                out = []
-                with codecs.open(path + '/' + raw_file, 'r', encoding='utf-8') as l_file:
-                    lines = []
-                    for line in l_file:
-                        lines.append(line.strip())
-                        if len(lines) >= args.large_size:
+                def tag_large_raw_file(l_raw_file, output_path, l_max_step):
+                    l_writer = codecs.open(output_path, 'w', encoding='utf-8')
+                    count = 0
+                    with codecs.open(l_raw_file, 'r', encoding='utf-8') as l_file:
+                        lines = []
+                        for line in l_file:
+                            line = line.strip()
+                            lines.append("".join(line.split()))
+                            if len(lines) >= args.large_size:
+                                count += len(lines)
+                                print count
+                                raw_x, _ = toolbox.get_input_vec_line(lines, char2idx, rad_dic=rad_dic)
+
+                                if ngram > 1:
+                                    raw_gram = toolbox.get_gram_vec_raw(lines, gram2idx)
+                                    raw_x += raw_gram
+
+                                for k in range(len(raw_x)):
+                                    raw_x[k] = toolbox.pad_zeros(raw_x[k], l_max_step)
+
+                                out = model.tag(sess=sess, r_x=raw_x, idx2tag=idx2tag, idx2char=idx2char, char2idx=unk_char2idx, outpath=args.output_path, ensemble=args.ensemble, batch_size=args.tag_batch, large_file=args.tag_large)
+
+                                for l_out in out:
+                                    l_writer.write(l_out + '\n')
+                                lines = []
+                        if len(lines) > 0:
+                            count += len(lines)
+                            print count
                             raw_x, _ = toolbox.get_input_vec_line(lines, char2idx, rad_dic=rad_dic)
 
                             if ngram > 1:
@@ -429,31 +478,30 @@ else:
                                 raw_x += raw_gram
 
                             for k in range(len(raw_x)):
-                                raw_x[k] = toolbox.pad_zeros(raw_x[k], max_step)
+                                raw_x[k] = toolbox.pad_zeros(raw_x[k], l_max_step)
 
-                            out = model.tag(sess=sess, r_x=raw_x, idx2tag=idx2tag, idx2char=idx2char, outpath=args.output_path, ensemble=args.ensemble, batch_size=args.tag_batch, large_file=args.tag_large)
+                            out = model.tag(sess=sess, r_x=raw_x, idx2tag=idx2tag, idx2char=idx2char, char2idx=unk_char2idx,
+                                            outpath=args.output_path, ensemble=args.ensemble, batch_size=args.tag_batch,
+                                            large_file=args.tag_large)
 
                             for l_out in out:
                                 l_writer.write(l_out + '\n')
-                            lines = []
-                    if len(lines) > 0:
 
-                        raw_x, _ = toolbox.get_input_vec_line(lines, char2idx, rad_dic=rad_dic)
+                    l_writer.close()
 
-                        if ngram > 1:
-                            raw_gram = toolbox.get_gram_vec_raw(lines, gram2idx)
-                            raw_x += raw_gram
+                bt_num = (min(300, max_step) - 1) / args.bucket_size + 1
 
-                        for k in range(len(raw_x)):
-                            raw_x[k] = toolbox.pad_zeros(raw_x[k], max_step)
+                for i in range(bt_num):
+                    print 'Tagging sentences in bucket %d: ' % (i + 1)
+                    tag_large_raw_file(raw_file + '_' + str(i), args.output_path + '_' + str(i), (i + 1) * args.bucket_size)
 
-                        out = model.tag(sess=sess, r_x=raw_x, idx2tag=idx2tag, idx2char=idx2char,
-                                        outpath=args.output_path, ensemble=args.ensemble, batch_size=args.tag_batch,
-                                        large_file=args.tag_large)
+                if max_step > 300:
+                    print 'Tagging sentences in the last bucket: '
+                    tag_large_raw_file(raw_file + '_' + str(bt_num), args.output_path + '_' + str(bt_num), max_step)
+                    bt_num += 1
 
-                        for l_out in out:
-                            l_writer.write(l_out + '\n')
+                print 'Merging...'
+                toolbox.merge_files(args.output_path, raw_file, bt_num)
 
-                l_writer.close()
-
-
+        print 'Done.'
+        print 'Done. Time consumed: %d seconds' % int(time() - s_time)

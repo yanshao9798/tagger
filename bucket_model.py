@@ -398,10 +398,13 @@ class Model(object):
 
             old_emb_weights = self.emb_layer.embeddings
             emb_dim = old_emb_weights.get_shape().as_list()[1]
+            emb_len = old_emb_weights.get_shape().as_list()[0]
             new_emb = toolbox.get_new_embeddings(new_chars, emb_dim, emb_path)
             n_emb_sh = new_emb.get_shape().as_list()
             if len(n_emb_sh) > 1:
                 new_emb_weights = tf.concat(0, [old_emb_weights[:len(char2idx) - len(new_chars)], new_emb, old_emb_weights[len(char2idx):]])
+                if new_emb_weights.get_shape().as_list()[0] > emb_len:
+                    new_emb_weights = new_emb_weights[:emb_len]
                 assign_op = old_emb_weights.assign(new_emb_weights)
                 self.updates.append(assign_op)
 
@@ -462,15 +465,26 @@ class Model(object):
                 final_out = prediction_out[0]
             toolbox.printer(final_out, outpath)
 
-    def tag(self, sess, r_x, idx2tag, idx2char, expected_scheme='BIES', outpath='out.txt', ensemble=None, batch_size=200, large_file=False):
+    def tag(self, sess, r_x, idx2tag, idx2char, char2idx, expected_scheme='BIES', outpath='out.txt', ensemble=None, batch_size=200, large_file=False):
 
         chars = toolbox.decode_chars(r_x[0], idx2char)
+
+        char_num = len(set(char2idx.values()))
+
+        r_x = np.asarray(r_x)
+
+        r_x[0][r_x[0] > char_num - 1] = char2idx['<UNK>']
 
         pt_holder = None
         if self.graphic:
             pt_holder = self.input_p[0]
 
-        prediction = self.predict(data=r_x, sess=sess, model=self.input_v[0] + self.output[0], index=0, pt_h=pt_holder, pt=self.pixels, ensemble=ensemble, batch_size=batch_size)
+        c_len = len(r_x[0][0])
+        idx = self.bucket_dit[c_len]
+
+        real_batch = batch_size * 300 / c_len
+
+        prediction = self.predict(data=r_x, sess=sess, model=self.input_v[idx] + self.output[idx], index=idx, pt_h=pt_holder, pt=self.pixels, ensemble=ensemble, batch_size=real_batch)
         prediction = toolbox.decode_tags(prediction, idx2tag, self.tag_scheme)
         prediction_out = toolbox.generate_output(chars, prediction, self.tag_scheme)
 
