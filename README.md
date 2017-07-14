@@ -4,13 +4,15 @@ A Joint Chinese segmentation and POS tagger based on bidirectional GRU-CRF
 
 ## News
 
+The code is updated to TensorFlow 1.2.0 (2017.7.14)
+Dyniamic bidirectional rnn is employed (2017.7.14)
 Now the tagger supports bucket model to very efficiently tag very large files. 
 
 ## Requirements
 
 Python 2.7
 
-TensorFlow 0.11.0 (Newer versions will be supported in the furture)
+TensorFlow 1.2.0
 
 Pygame (Convert Chinese characters into pictures)
 
