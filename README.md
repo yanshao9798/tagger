@@ -6,7 +6,7 @@ A Joint Chinese segmentation and POS tagger based on bidirectional GRU-CRF
 
 The code is updated to TensorFlow 1.2.0 (2017.7.14)
 
-Dyniamic bidirectional rnn is employed (2017.7.14)
+Dyniamic bidirectional rnn is employed, now it requires drastically less memory both for training and tagging (2017.7.14)
 
 Now the tagger supports bucket model to very efficiently tag very large files. 
 
