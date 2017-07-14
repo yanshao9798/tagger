@@ -13,7 +13,7 @@ import math
 
 class Model(object):
 
-    def __init__(self, nums_chars, nums_tags, buckets_char, counts=None, pic_size=None, font=None, batch_size=10, tag_scheme='BIES', word_vec=True, radical=False, graphic=False, crf=1, ngram=None):
+    def __init__(self, nums_chars, nums_tags, buckets_char, counts=None, pic_size=None, font=None, batch_size=10, tag_scheme='BIES', word_vec=True, radical=False, graphic=False, crf=1, ngram=None, metric='F1-score'):
         self.nums_chars = nums_chars
         self.nums_tags = nums_tags
         self.buckets_char = buckets_char
@@ -38,6 +38,7 @@ class Model(object):
         self.scores = None
         self.params = None
         self.pixels = None
+        self.metric = metric
         self.updates = []
         self.bucket_dit = {}
         self.input_v = []
@@ -52,6 +53,10 @@ class Model(object):
             self.transition_char = []
             for i in range(len(self.nums_tags)):
                 self.transition_char.append(tf.get_variable('transitions_char' + str(i), [self.nums_tags[i] + 1, self.nums_tags[i] + 1]))
+
+        self.all_metrics = None
+
+        self.all_metrics = ['Precision', 'Recall', 'F1-score', 'True-Negative-Rate', 'Boundary-F1-score']
 
         while len(self.buckets_char) > len(self.counts):
             self.counts.append(1)
@@ -81,9 +86,16 @@ class Model(object):
             param_dic['buckets_char'] = self.buckets_char
             param_dic['ngram'] = self.ngram
             #print param_dic
-            f_model = open(trained_model, 'w')
-            pickle.dump(param_dic, f_model)
-            f_model.close()
+            if self.metric == 'All':
+                pindex = trained_model.rindex('/') + 1
+                for m in self.all_metrics:
+                    f_model = open(trained_model[:pindex] + m + '_' + trained_model[pindex:], 'w')
+                    pickle.dump(param_dic, f_model)
+                    f_model.close()
+            else:
+                f_model = open(trained_model, 'w')
+                pickle.dump(param_dic, f_model)
+                f_model.close()
 
         # define shared weights and variables
 
@@ -177,7 +189,6 @@ class Model(object):
                 self.input_p.append(input_p)
 
                 pix_out = tf.reshape(input_p, [-1, bucket, pixel_dim, pixel_dim, 1])
-                pix_out = tf.unpack(pix_out, axis=1)
 
                 conv_out_1 = wrapper_conv_1(pix_out)
                 pooling_out_1 = wrapper_mp_1(conv_out_1)
@@ -187,7 +198,7 @@ class Model(object):
 
                 assert p_size_2 == pooling_out_2[0].get_shape().as_list()[1]
                 pooling_out = tf.reshape(pooling_out_2, [-1, bucket, p_size_2 * p_size_2 * filters])
-                pooling_out = tf.unpack(pooling_out, axis=1)
+                pooling_out = tf.unstack(pooling_out, axis=1)
 
                 graphic_out = wrapper_dense(pooling_out)
                 graphic_out = wrapper_dr(graphic_out)
@@ -196,8 +207,7 @@ class Model(object):
 
 
             if len(emb_set) > 1:
-                emb_out = tf.concat(2, emb_set)
-                emb_out = tf.unpack(emb_out)
+                emb_out = tf.concat(axis=2, values=emb_set)
 
             else:
                 emb_out = emb_set[0]
@@ -206,9 +216,7 @@ class Model(object):
 
             output = output_wrapper(rnn_out)
 
-            output_c = tf.pack(output, axis=1)
-
-            self.output.append([output_c])
+            self.output.append([output])
 
             self.output_.append([tf.placeholder(tf.int32, [None, bucket], name='tags' + str(bucket))])
 
@@ -284,15 +292,15 @@ class Model(object):
                 length = tf.placeholder(tf.int32, [None])
                 b_size = tf.placeholder(tf.int32, [])
                 small = -1000
-                class_pad = tf.pack(small * tf.ones([b_size, nums_steps, 1]))
-                observations = tf.concat(2, [ob, class_pad])
+                class_pad = tf.stack(small * tf.ones([b_size, nums_steps, 1]))
+                observations = tf.concat(axis=2, values=[ob, class_pad])
                 b_vec = tf.tile(([small] * nt + [0]), [b_size])
                 b_vec = tf.cast(b_vec, tf.float32)
                 b_vec = tf.reshape(b_vec, [b_size, 1, -1])
                 e_vec = tf.tile(([0] + [small] * nt), [b_size])
                 e_vec = tf.cast(e_vec, tf.float32)
                 e_vec = tf.reshape(e_vec, [b_size, 1, -1])
-                observations = tf.concat(1, [b_vec, observations, e_vec])
+                observations = tf.concat(axis=1, values=[b_vec, observations, e_vec])
                 transitions = tf.reshape(tf.tile(trans, [b_size, 1]), [b_size, nt + 1, nt + 1])
                 observations = tf.reshape(observations, [-1, nums_steps + 2, nt + 1, 1])
                 observations = tf.transpose(observations, [1, 0, 2, 3])
@@ -304,31 +312,42 @@ class Model(object):
                     previous = tf.reshape(previous, [-1, nt + 1, 1])
                     current = tf.reshape(observations[t, :, :, :], [-1, 1, nt + 1])
                     alpha_t = previous + current + transitions
-                    max_scores.append(tf.reduce_max(alpha_t, reduction_indices=1))
-                    max_scores_pre.append(tf.argmax(alpha_t, dimension=1))
+                    max_scores.append(tf.reduce_max(alpha_t, axis=1))
+                    max_scores_pre.append(tf.argmax(alpha_t, axis=1))
                     alpha_t = tf.reshape(Forward.log_sum_exp(alpha_t, axis=1), [-1, nt + 1, 1])
                     alphas.append(alpha_t)
                     previous = alpha_t
-                max_scores = tf.pack(max_scores, axis=1)
-                max_scores_pre = tf.pack(max_scores_pre, axis=1)
+                max_scores = tf.stack(max_scores, axis=1)
+                max_scores_pre = tf.stack(max_scores_pre, axis=1)
                 decode_holders.append([ob, trans, length, b_size])
                 scores.append((max_scores, max_scores_pre))
             self.decode_holders.append(decode_holders)
             self.scores.append(scores)
 
-    def train(self, t_x, t_y, v_x, v_y, idx2tag, idx2char, sess, epochs, trained_model, lr=0.05, decay=0.05, decay_step=1):
+    def train(self, t_x, t_y, v_x, v_y, idx2tag, idx2char, sess, epochs, trained_model, lr=0.05, decay=0.05, decay_step=1, tag_num=1):
         lr_r = lr
-        best_epoch = 0
-        best_score = 0
 
-        best_seg = 0
-        best_pos = 0
+        best_epoch, best_score, best_seg, best_pos, c_tag, c_seg, c_score = {}, {}, {}, {}, {}, {}, {}
+
+        pindex = 0
+
+        metric = self.metric
+
+        for m in self.all_metrics:
+            best_epoch[m] = 0
+            best_score[m] = 0
+
+            best_seg[m] = 0
+            best_pos[m] = 0
+
+            c_tag[m] = 0
+            c_seg[m] = 0
+            c_score[m] = 0
 
         v_y = toolbox.merge_bucket(v_y)
         v_y = toolbox.unpad_zeros(v_y)
 
         gold = toolbox.decode_tags(v_y, idx2tag, self.tag_scheme)
-
         input_chars = toolbox.merge_bucket([v_x[0]])
 
         chars = toolbox.decode_chars(input_chars[0], idx2char)
@@ -374,21 +393,68 @@ class Model(object):
 
             prediction_out = toolbox.generate_output(chars, predictions, self.tag_scheme)
 
-            scores = toolbox.evaluator(prediction_out, gold_out, tag_scheme=self.tag_scheme)
+            scores = toolbox.evaluator(prediction_out, gold_out, metric=metric, verbose=True, tag_num=tag_num)
             scores = np.asarray(scores)
 
-            c_score = np.max(scores[:,1])*np.max(scores[:,0])
-            if c_score > best_score and epoch > 4:
-                best_epoch = epoch + 1
-                best_score = c_score
-                best_seg = np.max(scores[:,0])
-                best_pos = np.max(scores[:,1])
+            #Score_seg * Score_seg&tag
+            c_seg['Precision'] = scores[0]
+            c_seg['Recall'] = scores[1]
+            c_seg['F1-score'] = scores[2]
+            c_seg['True-Negative-Rate'] = scores[6]
+            c_seg['Boundary-F1-score'] = scores[10]
+            if self.tag_scheme != 'seg':
+                c_tag['Precision'] = scores[3]
+                c_tag['Recall'] = scores[4]
+                c_tag['F1-score'] = scores[5]
+                c_tag['True-Negative-Rate'] = scores[7]
+                c_tag['Boundary-F1-score'] = scores[13]
+            else:
+                c_tag['Precision'] = 1
+                c_tag['Recall'] = 1
+                c_tag['F1-score'] = 1
+                c_tag['True-Negative-Rate'] = 1
+                c_tag['Boundary-F1-score'] = 1
+
+            if metric == 'All':
+                for m in self.all_metrics:
+                    print 'Segmentation ' + m + ': %f' % c_seg[m]
+                    print 'POS Tagging ' + m + ': %f\n' % c_tag[m]
+                pindex = trained_model.rindex('/') + 1
+            else:
+                print 'Segmentation ' + metric + ': %f' % c_seg[metric]
+                if self.tag_scheme != 'seg':
+                    print 'POS Tagging ' + metric + ': %f\n' % c_tag[metric]
+
+            for m in self.all_metrics:
+                c_score[m] = c_seg[m] * c_tag[m]
+
+            if metric == 'All':
+                for m in self.all_metrics:
+                    if c_score[m] > best_score[m] and epoch > 4:
+                        best_epoch[m] = epoch + 1
+                        best_score[m] = c_score[m]
+                        best_seg[m] = c_seg[m]
+                        best_pos[m] = c_tag[m]
+                        self.saver.save(sess[0],  trained_model[:pindex] + m + '_' + trained_model[pindex:], write_meta_graph=False)
+
+            elif c_score[metric] > best_score[metric] and epoch > 4:
+                best_epoch[metric] = epoch + 1
+                best_score[metric] = c_score[metric]
+                best_seg[metric] = c_seg[metric]
+                best_pos[metric] = c_tag[metric]
                 self.saver.save(sess[0], trained_model, write_meta_graph=False)
             print 'Time consumed: %d seconds' % int(time() - t)
         print 'Training is finished!'
-        print 'Best segmentation score: %f' % best_seg
-        print 'Best POS tag score: %f' % best_pos
-        print 'Best epoch: %d' % best_epoch
+
+        if metric == 'All':
+            for m in self.all_metrics:
+                print 'Best segmentation ' + m + ': %f' % best_seg[m]
+                print 'Best POS Tagging ' + m + ': %f' % best_pos[m]
+                print 'Best epoch: %d\n' % best_epoch[m]
+        else:
+            print 'Best segmentation ' + metric + ': %f' % best_seg[metric]
+            print 'Best POS Tagging ' + metric + ': %f' % best_pos[metric]
+            print 'Best epoch: %d\n' % best_epoch[metric]
 
     def define_updates(self, new_chars, emb_path, char2idx, new_grams=None, ng_emb_path=None, gram2idx=None):
 
@@ -402,7 +468,7 @@ class Model(object):
             new_emb = toolbox.get_new_embeddings(new_chars, emb_dim, emb_path)
             n_emb_sh = new_emb.get_shape().as_list()
             if len(n_emb_sh) > 1:
-                new_emb_weights = tf.concat(0, [old_emb_weights[:len(char2idx) - len(new_chars)], new_emb, old_emb_weights[len(char2idx):]])
+                new_emb_weights = tf.concat(axis=0, values=[old_emb_weights[:len(char2idx) - len(new_chars)], new_emb, old_emb_weights[len(char2idx):]])
                 if new_emb_weights.get_shape().as_list()[0] > emb_len:
                     new_emb_weights = new_emb_weights[:emb_len]
                 assign_op = old_emb_weights.assign(new_emb_weights)
@@ -413,7 +479,7 @@ class Model(object):
             ng_emb_dim = old_gram_weights[0].get_shape().as_list()[1]
             new_ng_emb = toolbox.get_new_ng_embeddings(new_grams, ng_emb_dim, ng_emb_path)
             for i in range(len(old_gram_weights)):
-                new_ng_weight = tf.concat(0, [old_gram_weights[i][:len(gram2idx[i]) - len(new_grams[i])], new_ng_emb[i], old_gram_weights[i][len(gram2idx[i]):]])
+                new_ng_weight = tf.concat(axis=0, values=[old_gram_weights[i][:len(gram2idx[i]) - len(new_grams[i])], new_ng_emb[i], old_gram_weights[i][len(gram2idx[i]):]])
                 assign_op = old_gram_weights[i].assign(new_ng_weight)
                 self.updates.append(assign_op)
 
@@ -424,7 +490,7 @@ class Model(object):
 
         print 'Loaded.'
 
-    def test(self, sess, t_x, t_y, idx2tag, idx2char, outpath=None, ensemble=None, batch_size=200):
+    def test(self, sess, t_x, t_y, idx2tag, idx2char, outpath=None, ensemble=None, batch_size=200, tag_num=1):
 
         t_y = toolbox.unpad_zeros(t_y)
         gold = toolbox.decode_tags(t_y, idx2tag, self.tag_scheme)
@@ -439,33 +505,27 @@ class Model(object):
         prediction = toolbox.decode_tags(prediction, idx2tag, self.tag_scheme)
         prediction_out = toolbox.generate_output(chars, prediction, self.tag_scheme)
 
-        scores = toolbox.evaluator(prediction_out, gold_out, tag_scheme=self.tag_scheme, verbose=True)
-
-        scores = np.asarray(scores)
-        scores_f = scores[:, 1]
-        best_idx = int(np.argmax(scores_f))
-
-        c_score = scores[0]
+        scores = toolbox.evaluator(prediction_out, gold_out, metric='All', verbose=True, tag_num=tag_num)
 
         print 'Best scores: '
-        print 'Segmentation F-score: %f' % c_score[0]
-        print 'Segmentation Precision: %f' % c_score[2]
-        print 'Segmentation Recall: %f\n' % c_score[3]
 
-        print 'Joint POS tagging F-score: %f' % c_score[1]
-        print 'Joint POS tagging Precision: %f' % c_score[4]
-        print 'Joint POS tagging Recall: %f' % c_score[5]
+        print 'Segmentation F1-score: %f' % scores[2]
+        print 'Segmentation Precision: %f' % scores[0]
+        print 'Segmentation Recall: %f' % scores[1]
+        print 'Segmentation True Negative Rate: %f' % scores[6]
+        print 'Segmentation Boundary-F1-score: %f\n' % scores[10]
+
+        print 'Joint POS tagging F-score: %f' % scores[5]
+        print 'Joint POS tagging Precision: %f' % scores[3]
+        print 'Joint POS tagging Recall: %f' % scores[4]
+        print 'Joint POS True Negative Rate: %f' % scores[7]
+        print 'Joint POS tagging Boundary-F1-score: %f\n' % scores[13]
 
         if outpath is not None:
-            if self.tag_scheme == 'parallel':
-                final_out = prediction_out[best_idx + 1]
-            elif self.tag_scheme == 'mul':
-                final_out = prediction_out[best_idx]
-            else:
-                final_out = prediction_out[0]
+            final_out = prediction_out[0]
             toolbox.printer(final_out, outpath)
 
-    def tag(self, sess, r_x, idx2tag, idx2char, char2idx, expected_scheme='BIES', outpath='out.txt', ensemble=None, batch_size=200, large_file=False):
+    def tag(self, sess, r_x, idx2tag, idx2char, char2idx, outpath='out.txt', ensemble=None, batch_size=200, large_file=False):
 
         chars = toolbox.decode_chars(r_x[0], idx2char)
 
@@ -488,15 +548,7 @@ class Model(object):
         prediction = toolbox.decode_tags(prediction, idx2tag, self.tag_scheme)
         prediction_out = toolbox.generate_output(chars, prediction, self.tag_scheme)
 
-        scheme2idx_short = {'BI': 1, 'BIE': 2, 'BIES': 3, 'Voting': 4}
-        scheme2idx_long = {'BIES': 0, 'long': 1}
-
-        if len(prediction_out) > 2:
-            final_out = prediction_out[scheme2idx_short[expected_scheme]]
-        elif len(prediction_out) == 2:
-            final_out = prediction_out[scheme2idx_long[expected_scheme]]
-        else:
-            final_out = prediction_out[0]
+        final_out = prediction_out[0]
         if large_file:
             return final_out
         else:

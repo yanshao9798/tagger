@@ -10,7 +10,7 @@ import pygame
 import copy
 
 
-from evaluation import score
+from evaluation import score, score_boundaries
 
 sys.stdout = codecs.getwriter('utf8')(sys.stdout)
 
@@ -413,7 +413,7 @@ def get_new_embeddings(new_chars, emb_dim, emb_path=None):
                 new_emb.append(emb[ch])
             else:
                 new_emb.append(emb['<UNK>'])
-        return tf.pack(new_emb)
+        return tf.stack(new_emb)
 
 
 def get_new_ng_embeddings(new_grams, emb_dim, emb_path=None):
@@ -923,15 +923,15 @@ def generate_output(chars, tags, tag_scheme):
     return out
 
 
-def evaluator(prediction, gold, tag_scheme='BIES', verbose=False):
+def evaluator(prediction, gold, metric='F1-score', tag_num=1, verbose=False):
     assert len(prediction) == len(gold)
-
-    scores = score(gold[0], prediction[0],  verbose)
-    print 'Segmentation F-score: %f' % scores[0]
-    if tag_scheme != 'seg':
-        print 'Tagging F-score: %f' % scores[1]
-    scores = [scores]
-    return scores
+    scores = (0, 0, 0, 0, 0, 0)
+    scores_b = (0, 0, 0, 0, 0, 0)
+    if metric in ['F1-score', 'Precision', 'Recall', 'All']:
+        scores = score(gold[0], prediction[0], tag_num,  verbose)
+    if metric in ['Boundary-F1-score', 'All']:
+        scores_b = score_boundaries(gold[0], prediction[0],  verbose)
+    return scores + scores_b
 
 
 

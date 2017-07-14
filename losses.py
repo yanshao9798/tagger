@@ -8,7 +8,7 @@ def cross_entropy(y, y_, nums_tags):
     one_hot_y_ = tf.contrib.layers.one_hot_encoding(y_, nums_tags)
     one_hot_y_ = tf.reshape(one_hot_y_, [-1, nums_tags])
     y = tf.reshape(y, [-1, nums_tags])
-    return tf.nn.softmax_cross_entropy_with_logits(y, one_hot_y_)
+    return tf.nn.softmax_cross_entropy_with_logits(logits=y, labels=one_hot_y_)
     #return tf.reduce_mean(-tf.reduce_sum(y_ * tf.log(y), reduction_indices=[1]))
 
 
@@ -17,15 +17,15 @@ def mean_square(y, y_):
 
 
 def sparse_cross_entropy(y, y_):
-    return tf.nn.sparse_softmax_cross_entropy_with_logits(y, y_)
+    return tf.nn.sparse_softmax_cross_entropy_with_logits(logits=y, labels=y_)
 
 
 def sparse_cross_entropy_with_weights(y, y_, weights= None, average_cross_steps=True):
     if weights is None:
         weights = tf.cast(tf.sign(y_), tf.float32)
-    out = tf.nn.sparse_softmax_cross_entropy_with_logits(y, y_)
+    out = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=y, labels=y_)
     if average_cross_steps:
-        weights_sum = tf.reduce_sum(weights, reduction_indices=0)
+        weights_sum = tf.reduce_sum(weights, axis=0)
         return out*weights/(weights_sum + 1e-12)
     else:
         return out*weights
@@ -53,7 +53,7 @@ def sequence_loss_by_example(logits, targets, weights=None, average_across_times
         for logit, target, weight in zip(logits, targets, weights):
             if softmax_loss_function is None:
                 target = tf.reshape(target, [-1])
-                crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(logit, target)
+                crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logit, labels=target)
             else:
                 crossent = softmax_loss_function(logit, target)
             log_perp_list.append(crossent * weight)
@@ -67,22 +67,22 @@ def sequence_loss_by_example(logits, targets, weights=None, average_across_times
 
 def crf_loss(y, y_, transitions, nums_tags, batch_size):
     tag_scores = y
-    nums_steps = len(tf.unpack(tag_scores, axis=1))
+    nums_steps = len(tf.unstack(tag_scores, axis=1))
     masks = tf.cast(tf.sign(y_), dtype=tf.float32)
-    lengths = tf.reduce_sum(tf.sign(y_), reduction_indices=1)
+    lengths = tf.reduce_sum(tf.sign(y_), axis=1)
     tag_ids = y_
-    b_id = tf.pack([[nums_tags]] * batch_size)
+    b_id = tf.stack([[nums_tags]] * batch_size)
     #e_id = tf.pack([[0]] * batch_size)
-    padded_tag_ids = tf.concat(1, [b_id, tag_ids])
-    idx_tag_ids = tf.pack([tf.slice(padded_tag_ids, [0, i], [-1, 2]) for i in range(nums_steps)], axis=1)
+    padded_tag_ids = tf.concat(axis=1, values=[b_id, tag_ids])
+    idx_tag_ids = tf.stack([tf.slice(padded_tag_ids, [0, i], [-1, 2]) for i in range(nums_steps)], axis=1)
     tag_ids = tf.contrib.layers.one_hot_encoding(tag_ids, nums_tags)
-    point_score = tf.reduce_sum(tag_scores * tag_ids, reduction_indices=2)
+    point_score = tf.reduce_sum(tag_scores * tag_ids, axis=2)
     point_score *= masks
     #Save for future
     #trans_score = tf.gather_nd(transitions, idx_tag_ids)
-    trans_sh = tf.pack(transitions.get_shape())
+    trans_sh = tf.stack(transitions.get_shape())
     trans_sh = tf.cumprod(trans_sh, exclusive=True, reverse=True)
-    flat_tag_ids = tf.reduce_sum(trans_sh * idx_tag_ids, reduction_indices=2)
+    flat_tag_ids = tf.reduce_sum(trans_sh * idx_tag_ids, axis=2)
     trans_score = tf.gather(tf.reshape(transitions, [-1]), flat_tag_ids)
     ##
     #extend_mask = tf.concat(1, [tf.ones([batch_size, 1]), masks])
@@ -115,5 +115,5 @@ def loss_wrapper(y, y_, loss_function, transitions=None, nums_tags=None, batch_s
     else:
         for sy, sy_ in zip(y, y_):
             total_loss.append(tf.reshape(loss_function(sy, sy_), [-1]))
-    return tf.pack(total_loss)
+    return tf.stack(total_loss)
 

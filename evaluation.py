@@ -327,6 +327,40 @@ def evaluateSentence(lCandidate, lReference):
          elif indexCandidate > indexReference:
             indexReference += len(lReference[0][0]) # move
             lReference.pop(0)
+   raw_l = max(indexCandidate, indexReference)
+   total_num = (raw_l + 1) * raw_l / 2
+   return nCorrectWords, nCorrectTags, total_num
+
+
+def evaluateSentence_boundaries(lCandidate, lReference):
+   nCorrectWords = 0
+   nCorrectTags = 0
+   indexCandidate = 0
+   indexReference = 0
+   while len(lCandidate) > 1 and len(lReference) > 1:
+      if lCandidate[0][0] == lReference[0][0]:  # words right
+         nCorrectWords += 1
+         if lCandidate[0][1] == lReference[0][1] and lCandidate[1][1] == lReference[1][1]: # tags
+            nCorrectTags += 1
+         indexCandidate += len(lCandidate[0][0]) # move
+         indexReference += len(lReference[0][0])
+         lCandidate.pop(0)
+         lReference.pop(0)
+      else:
+         if indexCandidate == indexReference:
+            nCorrectTags += 1
+            if lCandidate[0][1] == lReference[0][1] and lCandidate[1][1] == lReference[1][1]:  # tags
+                nCorrectTags += 1
+            indexCandidate += len(lCandidate[0][0]) # move
+            indexReference += len(lReference[0][0])
+            lCandidate.pop(0)
+            lReference.pop(0)
+         elif indexCandidate < indexReference:
+            indexCandidate += len(lCandidate[0][0])
+            lCandidate.pop(0)
+         elif indexCandidate > indexReference:
+            indexReference += len(lReference[0][0]) # move
+            lReference.pop(0)
    return nCorrectWords, nCorrectTags
 
 #================================================================
@@ -351,9 +385,10 @@ def readNonEmptySentenceList(sents, bIgnoreNoneTag=True):
     return out
 
 
-def score(sReference, sCandidate, verbose=False):
+def score(sReference, sCandidate, tag_num=1, verbose=False):
     nTotalCorrectWords = 0
     nTotalCorrectTags = 0
+    nTotalPrediction = 0
     nCandidateWords = 0
     nReferenceWords = 0
     reference = readNonEmptySentenceList(sReference)
@@ -363,7 +398,48 @@ def score(sReference, sCandidate, verbose=False):
         n = len(lCandidate)
         nCandidateWords += len(lCandidate)
         nReferenceWords += len(lReference)
-        nCorrectWords, nCorrectTags = evaluateSentence(lCandidate, lReference)
+        nCorrectWords, nCorrectTags, total = evaluateSentence(lCandidate, lReference)
+        nTotalCorrectWords += nCorrectWords
+        nTotalCorrectTags += nCorrectTags
+        nTotalPrediction += total
+    word_precision = float(nTotalCorrectWords) / float(nCandidateWords)
+    word_recall = float(nTotalCorrectWords) / float(nReferenceWords)
+    tag_precision = float(nTotalCorrectTags) / float(nCandidateWords)
+    tag_recall = float(nTotalCorrectTags) / float(nReferenceWords)
+    word_false_negative = nCandidateWords - nTotalCorrectWords
+    tag_false_negative = nCandidateWords - nTotalCorrectTags
+    word_real_negative = nTotalPrediction - nReferenceWords
+    tag_real_negative = nTotalPrediction * tag_num - nReferenceWords
+    word_tnr = 1 - float(word_false_negative) / float(word_real_negative)
+    tag_tnr = 1 - float(tag_false_negative) / float(tag_real_negative)
+    if word_precision + word_recall > 0:
+        word_fmeasure = (2 * word_precision * word_recall) / (word_precision + word_recall)
+    else:
+        word_fmeasure = 0.00001
+
+    if tag_precision + tag_recall == 0:
+        tag_fmeasure = 0.0
+    else:
+        tag_fmeasure = (2 * tag_precision * tag_recall) / (tag_precision + tag_recall)
+    if verbose:
+        return word_precision, word_recall, word_fmeasure, tag_precision, tag_recall, tag_fmeasure, word_tnr, tag_tnr
+    else:
+        return word_fmeasure, tag_fmeasure
+
+
+def score_boundaries(sReference, sCandidate, verbose=False):
+    nTotalCorrectWords = 0
+    nTotalCorrectTags = 0
+    nCandidateWords = 0
+    nReferenceWords = 0
+    reference = readNonEmptySentenceList(sReference)
+    candidate = readNonEmptySentenceList(sCandidate)
+    assert len(reference) == len(candidate)
+    for lReference, lCandidate in zip(reference, candidate):
+        n = len(lCandidate)
+        nCandidateWords += len(lCandidate) - 1
+        nReferenceWords += len(lReference) - 1
+        nCorrectWords, nCorrectTags = evaluateSentence_boundaries(lCandidate, lReference)
         nTotalCorrectWords += nCorrectWords
         nTotalCorrectTags += nCorrectTags
     word_precision = float(nTotalCorrectWords) / float(nCandidateWords)
@@ -380,11 +456,9 @@ def score(sReference, sCandidate, verbose=False):
     else:
         tag_fmeasure = (2 * tag_precision * tag_recall) / (tag_precision + tag_recall)
     if verbose:
-        return word_fmeasure, tag_fmeasure, word_precision, word_recall, tag_precision, tag_recall
-        #return word_precision, word_recall, word_fmeasure, tag_precision, tag_recall, tag_fmeasure
+        return word_precision, word_recall, word_fmeasure, tag_precision, tag_recall, tag_fmeasure
     else:
         return word_fmeasure, tag_fmeasure
-
 
 
 #================================================================
@@ -405,6 +479,7 @@ if __name__ == '__main__':
       sys.exit(1)
    sCandidate = args[0]
    sReference = args[1]
+   boundaries = True
    if not os.path.exists(sCandidate):
       print "Candidate file %s does not exist." % sCandidate
       sys.exit(1)
@@ -420,14 +495,27 @@ if __name__ == '__main__':
    nReferenceWords = 0
    fReference = CPennTaggedSentenceReader(sReference); fCandidate = CPennTaggedSentenceReader(sCandidate)
    lReference = fReference.readNonEmptySentence(bIgnoreNoneTag=True); lCandidate = fCandidate.readNonEmptySentence(bIgnoreNoneTag=True)
-   while lReference and lCandidate:
-      n=len(lCandidate)
-      nCandidateWords += len(lCandidate)
-      nReferenceWords += len(lReference)
-      nCorrectWords, nCorrectTags = evaluateSentence(lCandidate, lReference)
-      nTotalCorrectWords += nCorrectWords
-      nTotalCorrectTags += nCorrectTags
-      lReference = fReference.readNonEmptySentence(bIgnoreNoneTag=True); lCandidate = fCandidate.readNonEmptySentence(bIgnoreNoneTag=True)
+   if boundaries:
+       while lReference and lCandidate:
+           n = len(lCandidate)
+           nCandidateWords += len(lCandidate) - 1
+           nReferenceWords += len(lReference) - 1
+           # nCorrectWords, nCorrectTags = evaluateSentence(lCandidate, lReference)
+           nCorrectWords, nCorrectTags = evaluateSentence_boundaries(lCandidate, lReference)
+           nTotalCorrectWords += nCorrectWords
+           nTotalCorrectTags += nCorrectTags
+           lReference = fReference.readNonEmptySentence(bIgnoreNoneTag=True)
+           lCandidate = fCandidate.readNonEmptySentence(bIgnoreNoneTag=True)
+   else:
+       while lReference and lCandidate:
+          n=len(lCandidate)
+          nCandidateWords += len(lCandidate)
+          nReferenceWords += len(lReference)
+          nCorrectWords, nCorrectTags = evaluateSentence(lCandidate, lReference)
+          #nCorrectWords, nCorrectTags = evaluateSentence_boundaries(lCandidate, lReference)
+          nTotalCorrectWords += nCorrectWords
+          nTotalCorrectTags += nCorrectTags
+          lReference = fReference.readNonEmptySentence(bIgnoreNoneTag=True); lCandidate = fCandidate.readNonEmptySentence(bIgnoreNoneTag=True)
 
    if ( lReference and not lCandidate ) or ( lCandidate and not lReference ) :
       print "Warning: the reference and the candidate consists of different number of lines!"

@@ -55,6 +55,8 @@ parser.add_argument('-lr', '--learning_rate', default=0.1, type=float, help='Ini
 parser.add_argument('-ld', '--decay_rate', default=0.05, type=float, help='Learning rate decay')
 parser.add_argument('-mt', '--momentum', default=None, type=float, help='Momentum')
 
+parser.add_argument('-om', '--op_metric', default='F1-score', help='Optimization metric')
+
 parser.add_argument('-cp', '--clipping', default=False, help='Apply Gradient Clipping', action='store_true')
 
 parser.add_argument("-tb","--train_batch", help="Training batch size", default=10, type=int)
@@ -174,11 +176,11 @@ if args.action == 'train':
     with main_graph.as_default():
         with tf.variable_scope("tagger", reuse=None, initializer=initializer) as scope:
 
-            model = Model(nums_chars=len(chars) + 2, nums_tags=nums_tags, buckets_char=b_buckets, counts=b_counts, font=args.font, tag_scheme=args.tag_scheme, word_vec=args.word_vector, graphic=args.pixels, pic_size=args.picture_size, radical=args.radical, crf=args.crf, ngram=nums_grams, batch_size=args.train_batch)
+            model = Model(nums_chars=len(chars) + 2, nums_tags=nums_tags, buckets_char=b_buckets, counts=b_counts, font=args.font, tag_scheme=args.tag_scheme, word_vec=args.word_vector, graphic=args.pixels, pic_size=args.picture_size, radical=args.radical, crf=args.crf, ngram=nums_grams, batch_size=args.train_batch, metric=args.op_metric)
             model.main_graph(trained_model=path + '/' + model_file + '_model', scope=scope, emb_dim=emb_dim, gru=args.gru, rnn_dim=args.rnn_cell_dimension, rnn_num=args.rnn_layer_number, emb=emb, ng_embs=ng_embs, drop_out=args.dropout_rate, pixels=pixels, rad_dim=args.radical_dimension, con_width=args.filter_size, filters=args.filters_number, pooling_size=args.max_pooling)
-            t = time()
-            model.config(optimizer=args.optimizer, decay=args.decay_rate, lr_v=args.learning_rate, momentum=args.momentum, clipping=args.clipping)
-            init = tf.initialize_all_variables()
+        t = time()
+        model.config(optimizer=args.optimizer, decay=args.decay_rate, lr_v=args.learning_rate, momentum=args.momentum, clipping=args.clipping)
+        init = tf.global_variables_initializer()
 
     main_graph.finalize()
 
@@ -201,7 +203,7 @@ if args.action == 'train':
         main_sess.run(init)
         print 'Done. Time consumed: %d seconds' % int(time() - t)
         t = time()
-        model.train(t_x=b_train_x, t_y=b_train_y, v_x=b_dev_x, v_y=b_dev_y, idx2tag=idx2tag, idx2char=idx2char, sess=sess, epochs=args.epochs, trained_model=path + '/' + model_file + '_weights', lr=args.learning_rate, decay=args.decay_rate)
+        model.train(t_x=b_train_x, t_y=b_train_y, v_x=b_dev_x, v_y=b_dev_y, idx2tag=idx2tag, idx2char=idx2char, sess=sess, epochs=args.epochs, trained_model=path + '/' + model_file + '_weights', lr=args.learning_rate, decay=args.decay_rate, tag_num=len(tags))
         print 'Done. Time consumed: %d seconds' % int(time() - t)
 
 else:
@@ -394,10 +396,10 @@ else:
                 bt_counts = [200] * len(bt_chars)
                 model = Model(nums_chars=nums_chars, nums_tags=nums_tags, buckets_char=bt_chars, counts=bt_counts, font=font, pic_size=pic_size, tag_scheme=tag_scheme, word_vec=word_vector, graphic=graphic, radical=radical, crf=crf, ngram=num_ngram, batch_size=args.tag_batch)
             model.main_graph(trained_model=None, scope=scope, emb_dim=emb_dim, gru=gru, rnn_dim=rnn_dim, rnn_num=rnn_num, drop_out=drop_out, pixels=pixels, con_width=con_width, filters=cv_kernels, pooling_size=pooling_size)
-            model.define_updates(new_chars=new_chars, emb_path=emb_path, char2idx=char2idx, new_grams=new_grams, ng_emb_path=ng_emb_path, gram2idx=gram2idx)
-            init = tf.initialize_all_variables()
+        model.define_updates(new_chars=new_chars, emb_path=emb_path, char2idx=char2idx, new_grams=new_grams, ng_emb_path=ng_emb_path, gram2idx=gram2idx)
+        init = tf.global_variables_initializer()
 
-            print 'Done. Time consumed: %d seconds' % int(time() - t)
+        print 'Done. Time consumed: %d seconds' % int(time() - t)
     main_graph.finalize()
 
     idx = None
@@ -437,7 +439,7 @@ else:
             model.run_updates(main_sess, weight_path + '_weights')
 
         if args.action == 'test':
-            model.test(sess=sess, t_x=test_x, t_y=test_y, idx2tag=idx2tag, idx2char=idx2char, outpath=args.output_path, ensemble=args.ensemble, batch_size=args.test_batch)
+            model.test(sess=sess, t_x=test_x, t_y=test_y, idx2tag=idx2tag, idx2char=idx2char, outpath=args.output_path, ensemble=args.ensemble, batch_size=args.test_batch, tag_num=len(tags))
 
         elif args.action == 'tag':
             if not args.tag_large:

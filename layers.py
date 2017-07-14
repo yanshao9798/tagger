@@ -82,7 +82,6 @@ class EmbeddingLayer(object):
         # Generate random embeddings or read pre-trained embeddings
         rand_uniform_init = tf.contrib.layers.xavier_initializer()
         if self.weights is None:
-            #self.embeddings = tf.Variable(tf.random_uniform([self.input_dim, self.output_dim], -math.sqrt(3/self.output_dim), math.sqrt(3/self.output_dim)), trainable=self.trainable, name=self.name + '_rand_emb')
             self.embeddings = tf.get_variable(self.name + '_emb', [self.input_dim, self.output_dim], initializer=rand_uniform_init, trainable=self.trainable)
         elif is_variable:
             self.embeddings = weights
@@ -103,7 +102,7 @@ class EmbeddingLayer(object):
         :return:
         """
         self.input = input_t
-        self.output = tf.unpack(tf.gather(self.embeddings, self.input), axis=1)
+        self.output = tf.gather(self.embeddings, self.input)
         return self.output
 
 
@@ -220,11 +219,14 @@ class BiLSTM(object):
         if self.nums_layers > 1:
             self.lstm_cell_fw = tf.nn.rnn_cell.MultiRNNCell([self.lstm_cell_fw] * self.nums_layers)
             self.lstm_cell_bw = tf.nn.rnn_cell.MultiRNNCell([self.lstm_cell_bw] * self.nums_layers)
-        self.length = tf.reduce_sum(tf.sign(self.input_ids), reduction_indices=1)
+        self.length = tf.reduce_sum(tf.sign(self.input_ids), axis=1)
         self.length = tf.cast(self.length, dtype=tf.int32)
-        self.output, f_state, b_state = tf.nn.bidirectional_rnn(self.lstm_cell_fw, self.lstm_cell_bw, self.input, sequence_length=self.length, dtype=tf.float32, scope=self.scope)
+        int_states, final_states = tf.nn.bidirectional_dynamic_rnn(self.lstm_cell_fw, self.lstm_cell_bw, self.input,
+                                                                   sequence_length=self.length, dtype=tf.float32,
+                                                                   scope=self.scope)
+        self.output = tf.concat(values=int_states, axis=2)
         if self.state:
-            return self.output, f_state, b_state
+            return self.output, final_states
         else:
             return self.output
 
@@ -239,17 +241,18 @@ class TimeDistributed(object):
         self.name = name
 
     def __call__(self, input_t, input_ids=None, pad=None):
-        self.input = input_t
+        self.input = tf.unstack(input_t, axis=1)
         if input_ids is None:
             self.out = [self.layer(splits) for splits in self.input]
         else:
             self.out = []
             pad = self.layer(self.input[0])*0
-            masks = tf.reduce_sum(input_ids, reduction_indices=0)
+            masks = tf.reduce_sum(input_ids, axis=0)
             length = len(self.input)
             for i in range(length):
                 r = tf.cond(tf.greater(masks[i], 0), lambda: self.layer(input_t[i]), lambda: pad)
                 self.out.append(r)
+        self.out = tf.stack(self.out, axis=1)
         return self.out
 
 
@@ -274,19 +277,17 @@ class Forward(object):
         :param axis:
         :return:
         """
-        x_max = tf.reduce_max(x, reduction_indices=axis, keep_dims=True)
-        x_max_ = tf.reduce_max(x, reduction_indices=axis)
-        return x_max_ + tf.log(tf.reduce_sum(tf.exp(x - x_max), reduction_indices=axis))
+        x_max = tf.reduce_max(x, axis=axis, keep_dims=True)
+        x_max_ = tf.reduce_max(x, axis=axis)
+        return x_max_ + tf.log(tf.reduce_sum(tf.exp(x - x_max), axis=axis))
 
     def __call__(self):
         small = -1000
-        class_pad = tf.pack(small * tf.ones([self.batch_size, self.nums_steps, 1]))
-        self.observations = tf.concat(2, [self.observations, class_pad])
-        b_vec = tf.cast(tf.pack(([small] * self.nums_tags + [0]) * self.batch_size), tf.float32)
+        class_pad = tf.stack(small * tf.ones([self.batch_size, self.nums_steps, 1]))
+        self.observations = tf.concat(axis=2, values=[self.observations, class_pad])
+        b_vec = tf.cast(tf.stack(([small] * self.nums_tags + [0]) * self.batch_size), tf.float32)
         b_vec = tf.reshape(b_vec, [self.batch_size, 1, -1])
-        #e_vec = tf.cast(tf.pack(([0] + [small] * self.nums_tags) * self.batch_size), tf.float32)
-        #e_vec = tf.reshape(e_vec, [self.batch_size, 1, -1])
-        self.observations = tf.concat(1, [b_vec, self.observations])
+        self.observations = tf.concat(axis=1, values=[b_vec, self.observations])
         self.transitions = tf.reshape(tf.tile(self.transitions, [self.batch_size, 1]), [self.batch_size, self.nums_tags + 1, self.nums_tags + 1])
         self.observations = tf.reshape(self.observations, [-1, self.nums_steps + 1, self.nums_tags + 1, 1])
         self.observations = tf.transpose(self.observations, [1, 0, 2, 3])
@@ -294,22 +295,22 @@ class Forward(object):
         max_scores = []
         max_scores_pre = []
         alphas = [previous]
-        for t in xrange(1, self.nums_steps + 1):
+        for t in range(1, self.nums_steps + 1):
             previous = tf.reshape(previous, [-1, self.nums_tags + 1, 1])
             current =  tf.reshape(self.observations[t,:, :, :], [-1, 1, self.nums_tags + 1])
             alpha_t = previous + current + self.transitions
             if self.viterbi:
-                max_scores.append(tf.reduce_max(alpha_t, reduction_indices=1))
-                max_scores_pre.append(tf.argmax(alpha_t, dimension=1))
+                max_scores.append(tf.reduce_max(alpha_t, axis=1))
+                max_scores_pre.append(tf.argmax(alpha_t, axis=1))
             alpha_t = tf.reshape(self.log_sum_exp(alpha_t, axis=1), [-1, self.nums_tags + 1, 1])
             alphas.append(alpha_t)
             previous = alpha_t
-        alphas = tf.pack(alphas, axis=1)
+        alphas = tf.stack(alphas, axis=1)
         alphas = tf.reshape(alphas, [-1, self.nums_tags + 1, 1])
         last_alphas = tf.gather(alphas, tf.range(0, self.batch_size) * (self.nums_steps + 1) + self.length)
         last_alphas = tf.reshape(last_alphas, [self.batch_size, self.nums_tags + 1, 1])
-        max_scores = tf.pack(max_scores, axis=1)
-        max_scores_pre = tf.pack(max_scores_pre, axis=1)
+        max_scores = tf.stack(max_scores, axis=1)
+        max_scores_pre = tf.stack(max_scores_pre, axis=1)
         return tf.reduce_sum(self.log_sum_exp(last_alphas, axis=1)), max_scores, max_scores_pre
 
 
