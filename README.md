@@ -4,6 +4,8 @@ A Joint Chinese segmentation and POS tagger based on bidirectional GRU-CRF
 
 ## News
 
+Fixed a minor problem related to weights loading. (2017.11.11)
+
 The code is updated to TensorFlow 1.2.0 (2017.7.14)
 
 Dyniamic bidirectional rnn is employed, now it requires drastically less memory both for training and tagging (2017.7.14)
