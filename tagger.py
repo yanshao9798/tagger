@@ -218,11 +218,11 @@ else:
     ng_emb_path = args.ngram_embeddings
 
     if args.ensemble:
-        if not os.path.isfile(path + '/' + model_file + '_1_model') or not os.path.isfile(path + '/' + model_file + '_1_weights'):
+        if not os.path.isfile(path + '/' + model_file + '_1_model') or not os.path.isfile(path + '/' + model_file + '_1_weights.index'):
             raise Exception('Not any model file or weights file under the name of ' + model_file + '.')
         fin = open(path + '/' + model_file + '_1_model', 'rb')
     else:
-        if not os.path.isfile(path + '/' + model_file + '_model') or not os.path.isfile(path + '/' + model_file + '_weights'):
+        if not os.path.isfile(path + '/' + model_file + '_model') or not os.path.isfile(path + '/' + model_file + '_weights.index'):
             raise Exception('No model file or weights file under the name of ' + model_file + '.')
         fin = open(path + '/' + model_file + '_model', 'rb')
 
