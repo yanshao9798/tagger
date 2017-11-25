@@ -4,9 +4,9 @@ A Joint Chinese segmentation and POS tagger based on bidirectional GRU-CRF
 
 ## News
 
-Intergrated the feedforward neural network model introduced in Zheng et al. (2013)
+Intergrated the feedforward neural network model introduced in Zheng et al. (2013) (2017.11.25)
 
-Update HiddenLayer for efficiency. TimeDistributed is not applied for output inference anymore.
+Updated HiddenLayer for efficiency. TimeDistributed is not applied for output inference anymore. (2017.11.25)
 
 The code is updated to TensorFlow 1.2.0 (2017.7.14)
 
