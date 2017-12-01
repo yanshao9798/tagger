@@ -18,7 +18,7 @@ Now the tagger supports bucket model to very efficiently tag very large files.
 
 Python 2.7
 
-TensorFlow 1.2.0
+TensorFlow 1.2.0 or newer
 
 Pygame (Convert Chinese characters into pictures)
 
