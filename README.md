@@ -30,7 +30,7 @@ Yan Shao, Christian Hardmeier, Jörg Tiedemann and Joakim Nivre. "Character-base
 
 http://aclweb.org/anthology/I/I17/I17-1018.pdf
 
-# To reproduce the results reported in the paper:
+### To reproduce the results reported in the paper:
 
 ## Single
 
@@ -50,7 +50,7 @@ python tagger.py train -p ud1 -t train.txt -d dev.txt -wv -cp -rd -gru -m model_
 
 python tagger.py test -ens -p ud1 -e test.txt -m model_ud1 -emb Embeddings/glove.txt
 
-# To tag raw sentences:
+### To tag raw sentences:
 
 ## Use simple model:
 
