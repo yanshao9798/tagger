@@ -276,8 +276,6 @@ else:
     buckets_char = param_dic['buckets_char']
     num_ngram = param_dic['ngram']
     mode = param_dic['mode']
-    local_conv = param_dic['local_conv']
-    pos_emb = param_dic['pos_emb']
 
     ngram = 1
     gram2idx = None
