@@ -545,5 +545,5 @@ else:
                 print 'Merging...'
                 toolbox.merge_files(args.output_path, raw_file, bt_num)
 
-        print 'Done.'
-        print 'Done. Time consumed: %d seconds' % int(time() - s_time)
+            print 'Done.'
+            print 'Done. Time consumed: %d seconds' % int(time() - s_time)
