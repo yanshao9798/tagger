@@ -728,7 +728,7 @@ def get_gram_vec(path, fname, gram2index, is_raw=False):
 
     if is_raw:
         for line in codecs.open(real_path, 'r', encoding='utf-8'):
-            line = line.strip()
+            line = re.sub('[\s+]', '', line)
             raw.append(line)
     else:
         for line in codecs.open(real_path, 'r', encoding='utf-8'):
