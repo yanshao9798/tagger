@@ -777,7 +777,7 @@ def get_input_vec_raw(path, fname, char2index, rad_dic=None):
     for line in codecs.open(real_path, 'r', encoding='utf-8'):
         charIndices = []
         radIndices = []
-        line = re.sub('[\s+]', '', line)
+        line = re.sub('[\s+]', '', line.strip())
         if len(line) > max_len:
             max_len = len(line)
         for ch in line:
