@@ -441,7 +441,7 @@ else:
     if args.ensemble:
         idx = 1
         main_sess = []
-        while os.path.isfile(path + '/' + model_file + '_' + str(idx) + '_weights'):
+        while os.path.isfile(path + '/' + model_file + '_' + str(idx) + '_weights.index'):
             main_sess.append(tf.Session(config=config, graph=main_graph))
             idx += 1
     else:
