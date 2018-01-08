@@ -138,19 +138,17 @@ class Model(object):
             self.pixels = pixels
             pixel_dim = int(math.sqrt(len(pixels[0])))
 
-            wrapper_conv_1 = TimeDistributed(Convolution(con_width, 1, filters, name='conv_1'), name='wrapper_c1')
-            wrapper_mp_1 = TimeDistributed(Maxpooling(pooling_size, pooling_size, name='pooling_1'), name='wrapper_p1')
+            wrapper_conv_1 = Convolution(con_width, 1, filters, name='conv_1')
+            wrapper_mp_1 = Maxpooling(pooling_size, pooling_size, name='pooling_1')
 
             p_size_1 = toolbox.down_pool(pixel_dim, pooling_size)
 
-            wrapper_conv_2 = TimeDistributed(Convolution(con_width, filters, filters, name='conv_2'), name='wrapper_c2')
-            wrapper_mp_2 = TimeDistributed(Maxpooling(pooling_size, pooling_size, name='pooling_2'), name='wrapper_p2')
-
+            wrapper_conv_2 = Convolution(con_width, filters, filters, name='conv_2')
+            wrapper_mp_2 = Maxpooling(pooling_size, pooling_size, name='pooling_2')
             p_size_2 = toolbox.down_pool(p_size_1, pooling_size)
 
-            wrapper_dense = TimeDistributed(HiddenLayer(p_size_2 * p_size_2 * filters, 100, activation='tanh',
-                                                        name='conv_dense'), name='wrapper_3')
-            wrapper_dr = TimeDistributed(DropoutLayer(self.drop_out), name='wrapper_dr')
+            wrapper_dense = HiddenLayer(p_size_2 * p_size_2 * filters, 100, activation='tanh', name='conv_dense')
+            wrapper_dr = DropoutLayer(self.drop_out)
 
             concat_emb_dim += 100
 
@@ -214,8 +212,7 @@ class Model(object):
             if self.graphic:
                 input_p = tf.placeholder(tf.float32, [None, bucket, pixel_dim*pixel_dim])
                 self.input_p.append(input_p)
-
-                pix_out = tf.reshape(input_p, [-1, bucket, pixel_dim, pixel_dim, 1])
+                pix_out = tf.reshape(input_p, [-1, pixel_dim, pixel_dim, 1])
 
                 conv_out_1 = wrapper_conv_1(pix_out)
                 pooling_out_1 = wrapper_mp_1(conv_out_1)
@@ -224,8 +221,8 @@ class Model(object):
                 pooling_out_2 = wrapper_mp_2(conv_out_2)
 
                 assert p_size_2 == pooling_out_2[0].get_shape().as_list()[1]
+
                 pooling_out = tf.reshape(pooling_out_2, [-1, bucket, p_size_2 * p_size_2 * filters])
-                pooling_out = tf.unstack(pooling_out, axis=1)
 
                 graphic_out = wrapper_dense(pooling_out)
                 graphic_out = wrapper_dr(graphic_out)
