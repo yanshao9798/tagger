@@ -612,7 +612,8 @@ class Model(object):
                                         verbose=verbose)
         else:
             predictions = Batch.predict(sess=sess[0], model=model, crf=self.crf, argmax=argmax, batch_size=batch_size,
-                                        data=data, dr=self.drop_out, ensemble=ensemble, verbose=verbose)
+                                        data=data, dr=self.drop_out, pixels=pt, pt_h=pt_h, ensemble=ensemble,
+                                        verbose=verbose)
         return predictions
 
 
