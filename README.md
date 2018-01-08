@@ -4,6 +4,8 @@ A Joint Chinese segmentation and POS tagger based on bidirectional GRU-CRF
 
 ## News
 
+TimeDistributed is completely suppressed now. Modified CNNs for graphical feature extraction. (2018.1.8)
+
 Add instructions on how to tag raw sentences with trained models. (2017.12.9)
 
 Intergrated the feedforward neural network model introduced in Zheng et al. (2013) (2017.11.25)
