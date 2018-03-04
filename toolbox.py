@@ -265,6 +265,7 @@ def get_chars_pixels(path, chars, font, pt_size, utf8=True):
     fout.close()
 
 
+
 def read_chars_pixels(path, font_name, pt_size):
     pix_dic = []
     for line in codecs.open(path + '/' + font_name + str(pt_size) +  '_pixels.txt', 'rb', encoding='utf-8'):
@@ -777,7 +778,7 @@ def get_input_vec_raw(path, fname, char2index, rad_dic=None):
     for line in codecs.open(real_path, 'r', encoding='utf-8'):
         charIndices = []
         radIndices = []
-        line = re.sub('[\s+]', '', line.strip())
+        line = re.sub('[\s+]', '', line)
         if len(line) > max_len:
             max_len = len(line)
         for ch in line:
@@ -898,7 +899,7 @@ def generate_output(chars, tags, tag_scheme):
                     if tg == 'I':
                         c_word += ch
                     else:
-                        p_line += ' ' + c_word + '_' + '<UNK>'
+                        p_line += ' ' + c_word
                         c_word = ch
                 else:
                     tg_sets = tg.split('-')
@@ -913,13 +914,13 @@ def generate_output(chars, tags, tag_scheme):
                             c_tag = tg_sets[1]
             if len(c_word) > 0:
                 if tag_scheme == 'seg':
-                    p_line += ' ' + c_word + '_' + '<UNK>'
+                    p_line += ' ' + c_word
                 elif len(c_tag) > 0:
                     p_line += ' ' + c_word + '_' + c_tag
             if tag_scheme == 'seg':
-                sub_out.append(p_line[8:])
+                sub_out.append(p_line.strip())
             else:
-                sub_out.append(p_line[3:])
+                sub_out.append(p_line.strip())
         out.append(sub_out)
     return out
 
