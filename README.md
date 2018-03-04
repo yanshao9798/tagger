@@ -4,6 +4,8 @@ A Joint Chinese segmentation and POS tagger based on bidirectional GRU-CRF
 
 ## News
 
+Add instructions on how to use the tagger as a word segmenter (without performing joint POS tagging).
+
 TimeDistributed is completely suppressed now. Modified CNNs for graphical feature extraction. (2018.1.8)
 
 Add instructions on how to tag raw sentences with trained models. (2017.12.9)
@@ -73,5 +75,9 @@ python tagger.py tag -p ud1 -r raw.txt -m model_ud1 -emb Embeddings/glove.txt  -
 (ensemble)
 
 python tagger.py tag -ens -p ud1 -r raw.txt -m model_ud1 -emb Embeddings/glove.txt  -opth tagged_file.txt -tl
+
+### To use the tagger as a word segmenter (without POS tagging):
+
+add `-tg seg` while training.
 
 
