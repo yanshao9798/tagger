@@ -920,7 +920,7 @@ def generate_output(chars, tags, tag_scheme):
             if tag_scheme == 'seg':
                 sub_out.append(p_line.strip())
             else:
-                sub_out.append(p_line.strip())
+                sub_out.append(p_line[1:].strip())
         out.append(sub_out)
     return out
 
