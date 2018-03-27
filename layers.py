@@ -297,7 +297,7 @@ class Forward(object):
         :param axis:
         :return:
         """
-        x_max = tf.reduce_max(x, axis=axis, keep_dims=True)
+        x_max = tf.reduce_max(x, axis=axis, keepdims=True)
         x_max_ = tf.reduce_max(x, axis=axis)
         return x_max_ + tf.log(tf.reduce_sum(tf.exp(x - x_max), axis=axis))
 
